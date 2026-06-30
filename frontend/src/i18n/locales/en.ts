@@ -344,6 +344,7 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
+    imageGeneration: 'Images',
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
@@ -600,12 +601,37 @@ export default {
     startUsingApi: 'Start using the API to see your usage history here.',
     viewAllUsage: 'View all usage',
     quickActions: 'Quick Actions',
+    generateImage: 'Generate Images',
+    openImageStudio: 'Open image workspace',
     createApiKey: 'Create API Key',
     generateNewKey: 'Generate a new API key',
     viewUsage: 'View Usage',
     checkDetailedLogs: 'Check detailed usage logs',
     redeemCode: 'Redeem Code',
     addBalanceWithCode: 'Add balance with a code'
+  },
+
+  // Image Generation
+  imageGeneration: {
+    title: 'Images',
+    description: 'Enter a prompt and generate an image directly.',
+    refreshKey: 'Refresh available key',
+    loadingKey: 'Loading key',
+    noActiveKey: 'No available key',
+    noKey: 'This account has no available API key. Create or enable one first.',
+    createKey: 'Create key',
+    emptyTitle: 'What would you like to create?',
+    emptyDescription: 'Describe the subject, style, and background. Generated images will appear here.',
+    promptPlaceholder: 'Describe the image you want',
+    generate: 'Generate',
+    generating: 'Generating image',
+    elapsed: '{seconds}s elapsed',
+    completedIn: 'Completed in {seconds}s',
+    download: 'Download',
+    keyLoadFailed: 'Failed to load API key',
+    generateFailed: 'Failed to generate image',
+    timeoutMessage: 'Image generation waited more than 10 minutes. The upstream service may be queued or stuck. Please try again shortly.',
+    emptyResponse: 'No image was returned. Try a different prompt.'
   },
 
   // Groups (shared)

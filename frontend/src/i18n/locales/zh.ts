@@ -344,6 +344,7 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
+    imageGeneration: '生图',
     usage: '使用记录',
     redeem: '兑换',
     affiliate: '邀请返利',
@@ -599,12 +600,37 @@ export default {
     startUsingApi: '开始使用 API 后，您的使用历史将显示在这里。',
     viewAllUsage: '查看全部',
     quickActions: '快捷操作',
+    generateImage: '生成图片',
+    openImageStudio: '打开生图界面',
     createApiKey: '创建 API 密钥',
     generateNewKey: '生成新的 API 密钥',
     viewUsage: '查看使用记录',
     checkDetailedLogs: '查看详细的使用日志',
     redeemCode: '兑换码',
     addBalanceWithCode: '使用兑换码充值'
+  },
+
+  // Image Generation
+  imageGeneration: {
+    title: '生图',
+    description: '输入提示词，直接生成图片。',
+    refreshKey: '刷新可用密钥',
+    loadingKey: '加载密钥中',
+    noActiveKey: '无可用密钥',
+    noKey: '当前账户没有可用的 API 密钥，请先创建或启用一把密钥。',
+    createKey: '去创建密钥',
+    emptyTitle: '想生成什么画面？',
+    emptyDescription: '描述主体、风格和背景，生成完成后图片会显示在这里。',
+    promptPlaceholder: '描述你想生成的图片',
+    generate: '生成',
+    generating: '正在生成图片',
+    elapsed: '已等待 {seconds}s',
+    completedIn: '{seconds}s 完成',
+    download: '下载',
+    keyLoadFailed: '加载 API 密钥失败',
+    generateFailed: '生成图片失败',
+    timeoutMessage: '生图请求等待超过 10 分钟，上游可能排队或卡住了，请稍后再试。',
+    emptyResponse: '没有收到图片结果，请换个提示词再试。'
   },
 
   // Groups (shared)
