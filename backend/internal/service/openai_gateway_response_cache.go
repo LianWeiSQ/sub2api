@@ -180,7 +180,7 @@ func (s *OpenAIGatewayService) estimateOpenAIGatewayResponseCacheSavedCost(ctx c
 	if serviceTier != nil {
 		tier = strings.TrimSpace(*serviceTier)
 	}
-	cost, err := s.calculateOpenAIRecordUsageCost(ctx, &OpenAIForwardResult{Usage: usage}, &APIKey{}, model, 1.0, tokens, tier)
+	cost, err := s.calculateOpenAIRecordUsageCost(ctx, &OpenAIForwardResult{Usage: usage}, &APIKey{}, []string{model}, 1.0, 1.0, tokens, tier)
 	if err != nil || cost == nil {
 		return 0
 	}

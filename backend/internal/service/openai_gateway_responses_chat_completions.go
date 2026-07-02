@@ -32,17 +32,6 @@ func shouldForwardOpenAIResponsesAsChatCompletions(account *Account) bool {
 	return mode == openAIResponsesModeForceChatCompletions
 }
 
-func buildOpenAIChatCompletionsURL(base string) string {
-	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
-	if strings.HasSuffix(normalized, "/chat/completions") {
-		return normalized
-	}
-	if strings.HasSuffix(normalized, "/v1") {
-		return normalized + "/chat/completions"
-	}
-	return normalized + "/v1/chat/completions"
-}
-
 func (s *OpenAIGatewayService) buildChatCompletionsUpstreamRequest(
 	ctx context.Context,
 	c *gin.Context,
@@ -124,7 +113,6 @@ func (s *OpenAIGatewayService) forwardResponsesAsChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("marshal chat completions request: %w", err)
 	}
-	setOpsUpstreamRequestBody(c, chatBody)
 
 	upstreamReq, err := s.buildChatCompletionsUpstreamRequest(ctx, c, account, chatBody, token, clientStream)
 	if err != nil {
