@@ -142,6 +142,33 @@ func TestDropPreviousResponseIDFromRawPayload(t *testing.T) {
 	})
 }
 
+func TestStripCodexSparkImageGenerationToolFromRawPayload(t *testing.T) {
+	t.Run("strips_image_generation_for_spark", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","model":"gpt-5.3-codex-spark","tools":[{"type":"function","name":"shell"},{"type":"image_generation","output_format":"png"}]}`)
+		updated, changed, err := stripCodexSparkImageGenerationToolFromRawPayload(payload, "gpt-5.3-codex-spark")
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.False(t, gjson.GetBytes(updated, `tools.#(type=="image_generation")`).Exists())
+		require.True(t, gjson.GetBytes(updated, `tools.#(type=="function")`).Exists())
+	})
+
+	t.Run("keeps_image_generation_for_non_spark", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","model":"gpt-5.3-codex","tools":[{"type":"image_generation","output_format":"png"}]}`)
+		updated, changed, err := stripCodexSparkImageGenerationToolFromRawPayload(payload, "gpt-5.3-codex")
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.Equal(t, string(payload), string(updated))
+	})
+
+	t.Run("noop_when_no_image_tool", func(t *testing.T) {
+		payload := []byte(`{"type":"response.create","model":"gpt-5.3-codex-spark","tools":[{"type":"function","name":"shell"}]}`)
+		updated, changed, err := stripCodexSparkImageGenerationToolFromRawPayload(payload, "gpt-5.3-codex-spark")
+		require.NoError(t, err)
+		require.False(t, changed)
+		require.Equal(t, string(payload), string(updated))
+	})
+}
+
 func TestAlignStoreDisabledPreviousResponseID(t *testing.T) {
 	t.Parallel()
 
@@ -303,12 +330,12 @@ func TestShouldInferIngressFunctionCallOutputPreviousResponseID(t *testing.T) {
 			want:             false,
 		},
 		{
-			name:             "skip_when_item_reference_already_covers_all_call_ids",
+			name:             "infer_when_only_item_reference_covers_call_ids",
 			storeDisabled:    true,
 			turn:             2,
 			signals:          ToolContinuationSignals{HasFunctionCallOutput: true, HasItemReferenceForAllCallIDs: true},
 			expectedPrevious: "resp_2",
-			want:             false,
+			want:             true,
 		},
 		{
 			name:             "skip_when_function_call_output_missing_call_id",
@@ -693,6 +720,36 @@ func TestBuildOpenAIWSReplayInputSequence(t *testing.T) {
 		require.Len(t, items, 2)
 		require.Equal(t, "hello", gjson.GetBytes(items[0], "text").String())
 		require.Equal(t, "world", gjson.GetBytes(items[1], "text").String())
+	})
+}
+
+func TestOpenAIWSRawPayloadHasToolCallOutput(t *testing.T) {
+	t.Parallel()
+
+	for _, typ := range []string{
+		"function_call_output",
+		"tool_search_output",
+		"custom_tool_call_output",
+		"mcp_tool_call_output",
+	} {
+		typ := typ
+		t.Run(typ, func(t *testing.T) {
+			t.Parallel()
+			payload := []byte(`{"input":[{"type":"` + typ + `","call_id":"call_1","output":"ok"}]}`)
+			require.True(t, openAIWSRawPayloadHasToolCallOutput(payload))
+		})
+	}
+
+	t.Run("object_input", func(t *testing.T) {
+		t.Parallel()
+		payload := []byte(`{"input":{"type":"tool_search_output","call_id":"call_1","output":"ok"}}`)
+		require.True(t, openAIWSRawPayloadHasToolCallOutput(payload))
+	})
+
+	t.Run("non_tool_output", func(t *testing.T) {
+		t.Parallel()
+		payload := []byte(`{"input":[{"type":"input_text","text":"hello"}]}`)
+		require.False(t, openAIWSRawPayloadHasToolCallOutput(payload))
 	})
 }
 
