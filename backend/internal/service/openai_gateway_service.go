@@ -222,6 +222,9 @@ type OpenAIForwardResult struct {
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Empty when no mapping was applied (requested model was used as-is).
 	UpstreamModel string
+	// UpstreamEndpoint overrides the normalized upstream endpoint stored in usage
+	// logs when a compatibility path targets a different OpenAI API surface.
+	UpstreamEndpoint string
 	// ServiceTier records the OpenAI Responses API service tier, e.g. "priority" / "flex".
 	// Nil means the request did not specify a recognized tier.
 	ServiceTier *string
@@ -235,6 +238,15 @@ type OpenAIForwardResult struct {
 	FirstTokenMs    *int
 	ImageCount      int
 	ImageSize       string
+
+	// Gateway response cache metadata. These fields describe Sub2API's own
+	// exact response cache, separate from provider prompt/cache-read tokens.
+	GatewayCacheStatus       string
+	GatewayCacheKey          string
+	GatewayCacheBypassReason string
+	GatewaySavedInputTokens  int
+	GatewaySavedOutputTokens int
+	GatewaySavedCost         float64
 }
 
 type OpenAIWSRetryMetricsSnapshot struct {
@@ -335,6 +347,7 @@ type OpenAIGatewayService struct {
 	channelService        *ChannelService
 	balanceNotifyService  *BalanceNotifyService
 	settingService        *SettingService
+	responseCacheService  *GatewayResponseCacheService
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
@@ -405,6 +418,7 @@ func NewOpenAIGatewayService(
 		channelService:        channelService,
 		balanceNotifyService:  balanceNotifyService,
 		settingService:        settingService,
+		responseCacheService:  NewGatewayResponseCacheServiceFromConfig(cfg),
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 	}
@@ -1855,7 +1869,11 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 		return account
 	}
 
-	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	// Fast path: prefer the scheduler snapshot's per-account cache so the
+	// selection hot path does not hit Postgres on every candidate re-check.
+	// The snapshot cache is updated eagerly by outbox events and still falls
+	// back to DB when the account entry is missing.
+	latest, err := s.getSchedulableAccount(ctx, account.ID)
 	if err != nil || latest == nil {
 		return nil
 	}
@@ -2287,7 +2305,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 		}
 
-		// Remove unsupported fields (not supported by upstream OpenAI API)
+		// Remove unsupported fields (not supported by upstream OpenAI API).
+		// The top-level `cache` field is handled after gateway-cache lookup so
+		// LiteLLM-style cache controls can opt in without being sent upstream.
 		unsupportedFields := []string{"prompt_cache_retention", "safety_identifier"}
 		for _, unsupportedField := range unsupportedFields {
 			if _, has := reqBody[unsupportedField]; has {
@@ -2382,6 +2402,48 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, err
+	}
+
+	reasoningEffort := extractOpenAIReasoningEffort(reqBody, originalModel)
+	serviceTier := extractOpenAIServiceTier(reqBody)
+	cacheLookup, cacheErr := s.lookupOpenAIGatewayResponseCache(ctx, c, account, "/v1/responses", body, reqStream, originalModel, upstreamModel)
+	if cacheErr == nil {
+		if result, ok := s.writeOpenAIGatewayResponseCacheHit(ctx, c, cacheLookup, originalModel, upstreamModel, "", serviceTier, reasoningEffort, startTime); ok {
+			return result, nil
+		}
+	} else if cacheLookup != nil {
+		cacheLookup.Status = GatewayResponseCacheStatusBypass
+		cacheLookup.BypassReason = "cache_error"
+		writeGatewayResponseCacheHeaders(c, cacheLookup, 0, 0, 0)
+	}
+
+	if _, hasCacheControl := reqBody["cache"]; hasCacheControl {
+		delete(reqBody, "cache")
+		if strippedBody, stripErr := sjson.DeleteBytes(body, "cache"); stripErr == nil {
+			body = strippedBody
+		} else {
+			marshalBody, marshalErr := json.Marshal(reqBody)
+			if marshalErr != nil {
+				return nil, fmt.Errorf("serialize request body after cache control strip: %w", marshalErr)
+			}
+			body = marshalBody
+		}
+	}
+
+	if shouldForwardOpenAIResponsesAsChatCompletions(account) {
+		return s.forwardResponsesAsChatCompletions(
+			ctx,
+			c,
+			account,
+			body,
+			token,
+			reqStream,
+			originalModel,
+			upstreamModel,
+			serviceTier,
+			reasoningEffort,
+			startTime,
+		)
 	}
 
 	// Capture upstream request body for ops retry of this attempt.
@@ -2720,10 +2782,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			usage = &OpenAIUsage{}
 		}
 
-		reasoningEffort := extractOpenAIReasoningEffort(reqBody, originalModel)
-		serviceTier := extractOpenAIServiceTier(reqBody)
-
-		return &OpenAIForwardResult{
+		result := &OpenAIForwardResult{
 			RequestID:       resp.Header.Get("x-request-id"),
 			Usage:           *usage,
 			Model:           originalModel,
@@ -2734,7 +2793,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			OpenAIWSMode:    false,
 			Duration:        time.Since(startTime),
 			FirstTokenMs:    firstTokenMs,
-		}, nil
+		}
+		applyOpenAIGatewayResponseCacheResultMetadata(result, openAIGatewayResponseCacheLookupFromContext(c))
+		return result, nil
 	}
 }
 
@@ -4539,6 +4600,18 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 			contentType = upstreamType
 		}
 	}
+
+	s.storeOpenAIGatewayResponseCache(
+		ctx,
+		c,
+		openAIGatewayResponseCacheLookupFromContext(c),
+		resp.StatusCode,
+		contentType,
+		resp.Header,
+		body,
+		resp.Header.Get("x-request-id"),
+		usage,
+	)
 
 	c.Data(resp.StatusCode, contentType, body)
 

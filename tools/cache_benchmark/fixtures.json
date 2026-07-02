@@ -1,0 +1,469 @@
+{
+  "schema_version": 1,
+  "name": "sub2api-gateway-cache-benchmark",
+  "description": "Ten fixed OpenAI-compatible chat completion samples for gateway cache benchmarking.",
+  "default_model": "sub2api-cache-bench",
+  "samples": [
+    {
+      "id": "short_system_translate",
+      "category": "short_system",
+      "cacheable": true,
+      "description": "Short deterministic translation with a compact system prompt.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 101,
+        "max_tokens": 80,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a precise translation assistant. Return only the translated sentence."
+          },
+          {
+            "role": "user",
+            "content": "Translate to English: 这个接口需要稳定地复用缓存。"
+          }
+        ]
+      }
+    },
+    {
+      "id": "short_system_classify",
+      "category": "short_system",
+      "cacheable": true,
+      "description": "Short classification request with structured output.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 102,
+        "max_tokens": 120,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "Classify support tickets. Return JSON with category, urgency, and one_sentence_reason."
+          },
+          {
+            "role": "user",
+            "content": "Customer says the API key was rotated yesterday and all production requests now receive 401."
+          }
+        ]
+      }
+    },
+    {
+      "id": "short_tools_weather_lookup",
+      "category": "short_tools",
+      "cacheable": true,
+      "description": "Short tool-enabled task with one compact function schema.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 103,
+        "max_tokens": 120,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "description": "Fetch current weather for a city.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "enum": [
+                      "celsius",
+                      "fahrenheit"
+                    ]
+                  }
+                },
+                "required": [
+                  "city"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "Use tools when fresh data is required. Keep responses short."
+          },
+          {
+            "role": "user",
+            "content": "Do I need an umbrella in Shanghai today?"
+          }
+        ]
+      }
+    },
+    {
+      "id": "short_tools_ticket_triage",
+      "category": "short_tools",
+      "cacheable": true,
+      "description": "Short operational tool task with deterministic schema overhead.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 104,
+        "max_tokens": 140,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "lookup_customer_plan",
+              "description": "Return the customer plan and current support tier.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "customer_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "customer_id"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "create_incident_note",
+              "description": "Attach a triage note to an incident.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "incident_id": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "incident_id",
+                  "note"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "You triage support incidents and call tools only when needed."
+          },
+          {
+            "role": "user",
+            "content": "Incident INC-2042 from customer cus_abc says cache headers disappeared after deploy."
+          }
+        ]
+      }
+    },
+    {
+      "id": "complex_system_code_review",
+      "category": "complex_system",
+      "cacheable": true,
+      "description": "Longer code review style task with stable instructions and repeated diff context.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 105,
+        "max_tokens": 260,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a senior backend reviewer. Focus on correctness, concurrency, observability, and test coverage. Return a concise ordered list of findings. Do not rewrite code unless asked."
+          },
+          {
+            "role": "user",
+            "content": "Review this simplified diff:\n\nfunc cacheKey(req Request) string {\n    b, _ := json.Marshal(req)\n    return sha256Hex(b)\n}\n\nfunc handle(req Request) Response {\n    if entry := cache.Get(cacheKey(req)); entry != nil {\n        return entry.Response\n    }\n    resp := upstream(req)\n    cache.Set(cacheKey(req), resp, time.Hour)\n    return resp\n}\n\nAssume req may contain request_id, timestamp, auth headers, tools, response_format, and stream."
+          }
+        ]
+      }
+    },
+    {
+      "id": "complex_system_policy_summary",
+      "category": "complex_system",
+      "cacheable": true,
+      "description": "Policy summarization request with large stable prompt and JSON output.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 106,
+        "max_tokens": 280,
+        "response_format": {
+          "type": "json_object"
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are an internal governance assistant. Summaries must be neutral, audit-friendly, and specific. JSON keys: decision, risk_level, required_controls, open_questions."
+          },
+          {
+            "role": "user",
+            "content": "Summarize the cache rollout policy. Exact response cache is opt-in by API key and group. Semantic cache is experimental and requires tenant isolation, model isolation, tool schema filtering, similarity threshold, audit logs, and a fast rollback switch. Provider prompt cache routing may be enabled by default when it preserves account pool permissions and does not leak tenant data."
+          }
+        ]
+      }
+    },
+    {
+      "id": "complex_tools_code_agent",
+      "category": "complex_tools",
+      "cacheable": true,
+      "description": "Coding-agent style request with multiple stable tool schemas.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 107,
+        "max_tokens": 320,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "search_code",
+              "description": "Search repository files using ripgrep-like syntax.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "glob": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "description": "Read a UTF-8 source file.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "run_tests",
+              "description": "Run a test command and return stdout, stderr, and exit code.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "cmd": {
+                    "type": "string"
+                  },
+                  "cwd": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "cmd"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a careful coding agent. Prefer reading tests before editing. Explain only the next concrete action."
+          },
+          {
+            "role": "user",
+            "content": "Find where gateway cache metrics should be recorded and propose the minimal test-first change."
+          }
+        ]
+      }
+    },
+    {
+      "id": "complex_tools_rag_answer",
+      "category": "complex_tools",
+      "cacheable": true,
+      "description": "RAG-style tool request with stable retrieval schema and long context.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 108,
+        "max_tokens": 300,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "search_docs",
+              "description": "Search product documentation by query and section.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string"
+                  },
+                  "section": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "Answer from product docs. Cite section names when available. If context is insufficient, say what to retrieve."
+          },
+          {
+            "role": "user",
+            "content": "Known docs context: Gateway response caching stores full model responses and must include request body, model, provider, endpoint, tenant namespace, tools, tool_choice, response_format, temperature, top_p, seed, and stream mode in its key. Provider prompt caching is separate and should report cached input tokens. Explain the difference for an admin user."
+          }
+        ]
+      }
+    },
+    {
+      "id": "complex_tools_data_plan",
+      "category": "complex_tools",
+      "cacheable": true,
+      "description": "Analysis planning task with SQL and chart tool schemas.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 109,
+        "max_tokens": 320,
+        "tool_choice": "auto",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "query_usage_events",
+              "description": "Query aggregated usage events.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "sql": {
+                    "type": "string"
+                  },
+                  "limit": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "sql"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          {
+            "type": "function",
+            "function": {
+              "name": "render_metric_chart",
+              "description": "Render a dashboard chart from named metrics.",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string"
+                  },
+                  "group_by": {
+                    "type": "string"
+                  },
+                  "window": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "metric",
+                  "window"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are an analytics engineer. Plan the smallest set of metric queries needed before making a dashboard claim."
+          },
+          {
+            "role": "user",
+            "content": "We need to show cache hit rate, saved tokens, saved cost, upstream call reduction, p50 duration, and first-token latency for baseline versus LiteLLM proxy over ten fixed samples."
+          }
+        ]
+      }
+    },
+    {
+      "id": "stream_short_summary",
+      "category": "stream_control",
+      "cacheable": false,
+      "description": "Streaming control sample. It validates stream parsing and may be excluded from cache-hit targets if a proxy bypasses streaming cache.",
+      "body": {
+        "model": "sub2api-cache-bench",
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 110,
+        "max_tokens": 120,
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "Summarize operational notes in one sentence."
+          },
+          {
+            "role": "user",
+            "content": "Exact cache should be tested separately from streaming replay because many gateways only store a stream after all chunks complete."
+          }
+        ]
+      }
+    }
+  ]
+}

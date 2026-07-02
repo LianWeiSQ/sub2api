@@ -200,6 +200,10 @@ func openAIImageUploadToDataURL(upload OpenAIImagesUpload) (string, error) {
 	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(upload.Data), nil
 }
 
+func buildOpenAIImagesEditPrompt(prompt string) string {
+	return "Edit the supplied image according to the user's instruction. Make the requested change clearly visible and do not return an unchanged copy. Preserve the main subject, layout, and readable text unless the instruction asks otherwise.\n\nInstruction: " + strings.TrimSpace(prompt)
+}
+
 func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel string) ([]byte, error) {
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
@@ -224,6 +228,9 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	}
 	if parsed.IsEdits() && len(inputImages) == 0 {
 		return nil, fmt.Errorf("image input is required")
+	}
+	if parsed.IsEdits() {
+		prompt = buildOpenAIImagesEditPrompt(prompt)
 	}
 
 	req := []byte(`{"instructions":"","stream":true,"reasoning":{"effort":"medium","summary":"auto"},"parallel_tool_calls":true,"include":["reasoning.encrypted_content"],"model":"","store":false,"tool_choice":{"type":"image_generation"}}`)

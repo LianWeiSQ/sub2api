@@ -126,13 +126,20 @@
               {{ siteSubtitle }}
             </p>
 
-            <!-- CTA Button -->
-            <div>
+            <!-- CTA Buttons -->
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center lg:justify-start">
+              <router-link
+                to="/image-generation"
+                class="btn btn-primary justify-center px-8 py-3 text-base shadow-lg shadow-primary-500/30"
+              >
+                <Icon name="sparkles" size="md" class="mr-2" :stroke-width="2" />
+                {{ t('home.generateImage') }}
+              </router-link>
               <router-link
                 :to="isAuthenticated ? dashboardPath : '/login'"
-                class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
+                class="btn btn-secondary justify-center px-8 py-3 text-base"
               >
-                {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
+                {{ isAuthenticated ? t('home.goToDashboard') : t('home.login') }}
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
               </router-link>
             </div>

@@ -674,6 +674,35 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
+
+	// ResponseCache: 网关层 exact response cache 配置。
+	// 默认关闭；启用后仅缓存非流式、确定性请求，命中时不再调用上游。
+	ResponseCache GatewayResponseCacheConfig `mapstructure:"response_cache"`
+}
+
+// GatewayResponseCacheConfig controls the gateway-level exact response cache.
+type GatewayResponseCacheConfig struct {
+	// Enabled gates all gateway response cache behavior.
+	Enabled bool `mapstructure:"enabled"`
+	// Mode controls cache activation: "always_on" caches eligible requests by
+	// default; "default_off" requires per-request opt-in.
+	Mode string `mapstructure:"mode"`
+	// AllowRequestOptIn honors LiteLLM-compatible body cache controls such as
+	// {"cache":{"use-cache":true}} when Mode is default_off.
+	AllowRequestOptIn bool `mapstructure:"allow_request_opt_in"`
+	// Namespace is prefixed into canonical cache keys. API key id is still added
+	// at runtime to avoid cross-tenant response reuse.
+	Namespace string `mapstructure:"namespace"`
+	// DefaultTTLSeconds is the entry TTL used when a request does not override it.
+	DefaultTTLSeconds int `mapstructure:"default_ttl_seconds"`
+	// MaxEntries limits the in-memory cache implementation.
+	MaxEntries int `mapstructure:"max_entries"`
+	// MaxEntryBytes limits the stored response body size.
+	MaxEntryBytes int64 `mapstructure:"max_entry_bytes"`
+	// MaxRequestBytes limits canonicalization of very large request bodies.
+	MaxRequestBytes int64 `mapstructure:"max_request_bytes"`
+	// CacheNonDeterministic permits explicitly stochastic requests.
+	CacheNonDeterministic bool `mapstructure:"cache_non_deterministic"`
 }
 
 // UserMessageQueueConfig 用户消息串行队列配置
@@ -1724,6 +1753,15 @@ func setDefaults() {
 	viper.SetDefault("gateway.usage_record.auto_scale_cooldown_seconds", 10)
 	viper.SetDefault("gateway.user_group_rate_cache_ttl_seconds", 30)
 	viper.SetDefault("gateway.models_list_cache_ttl_seconds", 15)
+	viper.SetDefault("gateway.response_cache.enabled", false)
+	viper.SetDefault("gateway.response_cache.mode", "default_off")
+	viper.SetDefault("gateway.response_cache.allow_request_opt_in", true)
+	viper.SetDefault("gateway.response_cache.namespace", "sub2api:gateway_response_cache")
+	viper.SetDefault("gateway.response_cache.default_ttl_seconds", 600)
+	viper.SetDefault("gateway.response_cache.max_entries", 1024)
+	viper.SetDefault("gateway.response_cache.max_entry_bytes", int64(4*1024*1024))
+	viper.SetDefault("gateway.response_cache.max_request_bytes", int64(1024*1024))
+	viper.SetDefault("gateway.response_cache.cache_non_deterministic", false)
 	// TLS指纹伪装配置（默认关闭，需要账号级别单独启用）
 	// 用户消息串行队列默认值
 	viper.SetDefault("gateway.user_message_queue.enabled", false)
@@ -2230,6 +2268,37 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.ProxyProbeResponseReadMaxBytes <= 0 {
 		return fmt.Errorf("gateway.proxy_probe_response_read_max_bytes must be positive")
+	}
+	if mode := strings.ToLower(strings.TrimSpace(c.Gateway.ResponseCache.Mode)); mode != "" {
+		switch mode {
+		case "always_on", "default_off":
+		default:
+			return fmt.Errorf("gateway.response_cache.mode must be one of: always_on/default_off")
+		}
+	}
+	if c.Gateway.ResponseCache.DefaultTTLSeconds < 0 {
+		return fmt.Errorf("gateway.response_cache.default_ttl_seconds must be non-negative")
+	}
+	if c.Gateway.ResponseCache.Enabled && c.Gateway.ResponseCache.DefaultTTLSeconds == 0 {
+		return fmt.Errorf("gateway.response_cache.default_ttl_seconds must be positive when enabled")
+	}
+	if c.Gateway.ResponseCache.MaxEntries < 0 {
+		return fmt.Errorf("gateway.response_cache.max_entries must be non-negative")
+	}
+	if c.Gateway.ResponseCache.Enabled && c.Gateway.ResponseCache.MaxEntries == 0 {
+		return fmt.Errorf("gateway.response_cache.max_entries must be positive when enabled")
+	}
+	if c.Gateway.ResponseCache.MaxEntryBytes < 0 {
+		return fmt.Errorf("gateway.response_cache.max_entry_bytes must be non-negative")
+	}
+	if c.Gateway.ResponseCache.Enabled && c.Gateway.ResponseCache.MaxEntryBytes == 0 {
+		return fmt.Errorf("gateway.response_cache.max_entry_bytes must be positive when enabled")
+	}
+	if c.Gateway.ResponseCache.MaxRequestBytes < 0 {
+		return fmt.Errorf("gateway.response_cache.max_request_bytes must be non-negative")
+	}
+	if c.Gateway.ResponseCache.Enabled && c.Gateway.ResponseCache.MaxRequestBytes == 0 {
+		return fmt.Errorf("gateway.response_cache.max_request_bytes must be positive when enabled")
 	}
 	if strings.TrimSpace(c.Gateway.ConnectionPoolIsolation) != "" {
 		switch c.Gateway.ConnectionPoolIsolation {

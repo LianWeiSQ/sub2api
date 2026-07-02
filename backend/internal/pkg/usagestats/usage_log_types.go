@@ -263,6 +263,18 @@ type UsageStats struct {
 	Endpoints         []EndpointStat `json:"endpoints,omitempty"`
 	UpstreamEndpoints []EndpointStat `json:"upstream_endpoints,omitempty"`
 	EndpointPaths     []EndpointStat `json:"endpoint_paths,omitempty"`
+
+	// Gateway response cache metrics are collected in the Sub2API gateway layer.
+	GatewayCacheHits         int64   `json:"gateway_cache_hits,omitempty"`
+	GatewayCacheMisses       int64   `json:"gateway_cache_misses,omitempty"`
+	GatewayCacheBypasses     int64   `json:"gateway_cache_bypasses,omitempty"`
+	GatewayCacheStores       int64   `json:"gateway_cache_stores,omitempty"`
+	GatewayCacheHitRate      float64 `json:"gateway_cache_hit_rate,omitempty"`
+	GatewaySavedInputTokens  int64   `json:"gateway_saved_input_tokens,omitempty"`
+	GatewaySavedOutputTokens int64   `json:"gateway_saved_output_tokens,omitempty"`
+	GatewaySavedTokens       int64   `json:"gateway_saved_tokens,omitempty"`
+	GatewaySavedCost         float64 `json:"gateway_saved_cost,omitempty"`
+	UpstreamCallReduction    float64 `json:"upstream_call_reduction,omitempty"`
 }
 
 // BatchUserUsageStats represents usage stats for a single user

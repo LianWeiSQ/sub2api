@@ -393,6 +393,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
 		requestPayloadHash := service.HashUsageRequestPayload(body)
+		upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
+		if result != nil && strings.TrimSpace(result.UpstreamEndpoint) != "" {
+			upstreamEndpoint = strings.TrimSpace(result.UpstreamEndpoint)
+		}
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 		h.submitUsageRecordTask(func(ctx context.Context) {
@@ -403,7 +407,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				Account:            account,
 				Subscription:       subscription,
 				InboundEndpoint:    GetInboundEndpoint(c),
-				UpstreamEndpoint:   GetUpstreamEndpoint(c, account.Platform),
+				UpstreamEndpoint:   upstreamEndpoint,
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				RequestPayloadHash: requestPayloadHash,

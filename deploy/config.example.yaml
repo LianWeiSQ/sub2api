@@ -231,6 +231,20 @@ gateway:
   # OpenAI 透传模式是否放行客户端超时头（如 x-stainless-timeout）
   # 默认 false：过滤超时头，降低上游提前断流风险。
   openai_passthrough_allow_timeout_headers: false
+  # Sub2API gateway 层完整响应缓存（区别于模型厂商的 prompt/KV cache）
+  # 默认关闭；default_off 时请求需通过 body.cache.use-cache=true 或 X-Sub2API-Cache: use-cache 显式开启。
+  response_cache:
+    enabled: false
+    # always_on：所有可安全缓存的确定性请求自动缓存；default_off：默认旁路，按请求 opt-in。
+    mode: "default_off"
+    allow_request_opt_in: true
+    namespace: "sub2api:gateway_response_cache"
+    default_ttl_seconds: 600
+    max_entries: 1024
+    max_entry_bytes: 4194304
+    max_request_bytes: 1048576
+    # 默认只缓存 temperature=0/top_p=1/n<=1 的确定性请求。
+    cache_non_deterministic: false
   # OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
   openai_ws:
     # 新版 WS mode 路由（默认关闭）。关闭时保持当前 legacy 实现行为。

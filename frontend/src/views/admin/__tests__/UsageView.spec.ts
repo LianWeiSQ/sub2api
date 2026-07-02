@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getModelStats, getById, getBaselineVsLiteLLMBenchmark } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -14,7 +14,9 @@ const { list, getStats, getSnapshotV2, getById } = vi.hoisted(() => {
     list: vi.fn(),
     getStats: vi.fn(),
     getSnapshotV2: vi.fn(),
+    getModelStats: vi.fn(),
     getById: vi.fn(),
+    getBaselineVsLiteLLMBenchmark: vi.fn(),
   }
 })
 
@@ -40,6 +42,7 @@ vi.mock('@/api/admin', () => ({
     },
     dashboard: {
       getSnapshotV2,
+      getModelStats,
     },
     users: {
       getById,
@@ -50,6 +53,7 @@ vi.mock('@/api/admin', () => ({
 vi.mock('@/api/admin/usage', () => ({
   adminUsageAPI: {
     list: vi.fn(),
+    getBaselineVsLiteLLMBenchmark,
   },
 }))
 
@@ -111,7 +115,9 @@ describe('admin UsageView distribution metric toggles', () => {
     list.mockReset()
     getStats.mockReset()
     getSnapshotV2.mockReset()
+    getModelStats.mockReset()
     getById.mockReset()
+    getBaselineVsLiteLLMBenchmark.mockReset()
 
     list.mockResolvedValue({
       items: [],
@@ -133,6 +139,14 @@ describe('admin UsageView distribution metric toggles', () => {
       models: [],
       groups: [],
     })
+    getModelStats.mockResolvedValue({
+      models: [],
+      start_date: '',
+      end_date: '',
+    })
+    getBaselineVsLiteLLMBenchmark.mockResolvedValue({
+      baseline_vs_litellm: [],
+    })
   })
 
   afterEach(() => {
@@ -145,6 +159,7 @@ describe('admin UsageView distribution metric toggles', () => {
         stubs: {
           AppLayout: AppLayoutStub,
           UsageStatsCards: true,
+          UsageCacheOptimizationCards: true,
           UsageFilters: UsageFiltersStub,
           UsageTable: true,
           UsageExportProgress: true,
@@ -155,6 +170,8 @@ describe('admin UsageView distribution metric toggles', () => {
           DateRangePicker: true,
           Icon: true,
           TokenUsageTrend: true,
+          GatewayCacheTrend: true,
+          LiteLLMBenchmarkPanel: true,
           ModelDistributionChart: ModelDistributionChartStub,
           GroupDistributionChart: GroupDistributionChartStub,
         },

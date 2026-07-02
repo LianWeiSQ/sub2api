@@ -1,0 +1,35 @@
+services:
+  fake-openai:
+    image: python:3.12-slim
+    working_dir: /workspace
+    command:
+      - python
+      - tools/cache_benchmark/fake_openai_llm.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "18081"
+      - --quiet
+    ports:
+      - "18081:18081"
+    volumes:
+      - ..:/workspace:ro
+
+  litellm-cache:
+    image: ghcr.io/berriai/litellm:main-latest
+    depends_on:
+      - fake-openai
+    environment:
+      FAKE_OPENAI_BASE_URL: http://fake-openai:18081/v1
+      FAKE_OPENAI_API_KEY: fake-key
+    command:
+      - --config
+      - /app/config.yaml
+      - --host
+      - 0.0.0.0
+      - --port
+      - "4000"
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm-cache-benchmark.config.yaml:/app/config.yaml:ro

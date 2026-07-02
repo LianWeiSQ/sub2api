@@ -91,6 +91,26 @@
           </span>
         </template>
 
+        <template #cell-gateway_cache="{ row }">
+          <div class="space-y-1 text-xs">
+            <div class="flex items-center gap-1.5">
+              <span class="inline-flex items-center rounded px-2 py-0.5 font-medium" :class="getGatewayCacheStatusBadgeClass(row.gateway_cache_status)">
+                {{ getGatewayCacheStatusLabel(row.gateway_cache_status) }}
+              </span>
+              <span v-if="row.gateway_cache_key_hash" class="font-mono text-gray-400 dark:text-gray-500" :title="row.gateway_cache_key_hash">
+                {{ truncateHash(row.gateway_cache_key_hash) }}
+              </span>
+            </div>
+            <div v-if="(row.gateway_saved_tokens || 0) > 0 || (row.gateway_saved_cost || 0) > 0" class="flex flex-wrap gap-x-2 gap-y-0.5 text-emerald-600 dark:text-emerald-400">
+              <span v-if="(row.gateway_saved_tokens || 0) > 0">{{ t('admin.usage.savedTokens') }} {{ formatCacheTokens(row.gateway_saved_tokens || 0) }}</span>
+              <span v-if="(row.gateway_saved_cost || 0) > 0">${{ (row.gateway_saved_cost || 0).toFixed(6) }}</span>
+            </div>
+            <div v-if="row.gateway_cache_bypass_reason" class="max-w-[220px] truncate text-gray-500 dark:text-gray-400" :title="row.gateway_cache_bypass_reason">
+              {{ row.gateway_cache_bypass_reason }}
+            </div>
+          </div>
+        </template>
+
         <template #cell-tokens="{ row }">
           <!-- 图片生成请求（仅按次计费时显示图片格式） -->
           <div v-if="row.image_count > 0 && row.billing_mode === BILLING_MODE_IMAGE" class="flex items-center gap-1.5">
@@ -245,6 +265,10 @@
               <span class="text-gray-400">{{ t('admin.usage.cacheReadTokens') }}</span>
               <span class="font-medium text-white">{{ tokenTooltipData.cache_read_tokens.toLocaleString() }}</span>
             </div>
+            <div v-if="tokenTooltipData && (tokenTooltipData.gateway_saved_tokens || 0) > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.gatewaySavedTokens') }}</span>
+              <span class="font-medium text-emerald-300">{{ (tokenTooltipData.gateway_saved_tokens || 0).toLocaleString() }}</span>
+            </div>
           </div>
           <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
             <span class="text-gray-400">{{ t('usage.totalTokens') }}</span>
@@ -302,6 +326,10 @@
             <div v-if="tooltipData && tooltipData.cache_read_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheReadCost') }}</span>
               <span class="font-medium text-white">${{ tooltipData.cache_read_cost.toFixed(6) }}</span>
+            </div>
+            <div v-if="tooltipData && (tooltipData.gateway_saved_cost || 0) > 0" class="flex items-center justify-between gap-4">
+              <span class="text-gray-400">{{ t('admin.usage.gatewaySavedCost') }}</span>
+              <span class="font-medium text-emerald-300">${{ (tooltipData.gateway_saved_cost || 0).toFixed(6) }}</span>
             </div>
           </div>
           <!-- Rate and Summary -->
@@ -412,6 +440,26 @@ const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {
   if (requestType === 'sync') return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
   return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
 }
+
+const getGatewayCacheStatusLabel = (status?: string | null): string => {
+  if (status === 'hit') return t('admin.usage.gatewayCacheStatus.hit')
+  if (status === 'miss') return t('admin.usage.gatewayCacheStatus.miss')
+  if (status === 'bypass') return t('admin.usage.gatewayCacheStatus.bypass')
+  if (status === 'store') return t('admin.usage.gatewayCacheStatus.store')
+  if (status === 'disabled') return t('admin.usage.gatewayCacheStatus.disabled')
+  return t('admin.usage.gatewayCacheStatus.unknown')
+}
+
+const getGatewayCacheStatusBadgeClass = (status?: string | null): string => {
+  if (status === 'hit') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'
+  if (status === 'miss') return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+  if (status === 'bypass') return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+  if (status === 'store') return 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200'
+  if (status === 'disabled') return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+  return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+}
+
+const truncateHash = (value: string): string => value.length > 10 ? `${value.slice(0, 10)}...` : value
 
 
 

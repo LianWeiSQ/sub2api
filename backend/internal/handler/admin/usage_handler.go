@@ -2,7 +2,11 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,10 +25,11 @@ import (
 
 // UsageHandler handles admin usage-related requests
 type UsageHandler struct {
-	usageService   *service.UsageService
-	apiKeyService  *service.APIKeyService
-	adminService   service.AdminService
-	cleanupService *service.UsageCleanupService
+	usageService         *service.UsageService
+	apiKeyService        *service.APIKeyService
+	adminService         service.AdminService
+	cleanupService       *service.UsageCleanupService
+	openAIGatewayService *service.OpenAIGatewayService
 }
 
 // NewUsageHandler creates a new admin usage handler
@@ -33,12 +38,18 @@ func NewUsageHandler(
 	apiKeyService *service.APIKeyService,
 	adminService service.AdminService,
 	cleanupService *service.UsageCleanupService,
+	openAIGatewayServices ...*service.OpenAIGatewayService,
 ) *UsageHandler {
+	var openAIGatewayService *service.OpenAIGatewayService
+	if len(openAIGatewayServices) > 0 {
+		openAIGatewayService = openAIGatewayServices[0]
+	}
 	return &UsageHandler{
-		usageService:   usageService,
-		apiKeyService:  apiKeyService,
-		adminService:   adminService,
-		cleanupService: cleanupService,
+		usageService:         usageService,
+		apiKeyService:        apiKeyService,
+		adminService:         adminService,
+		cleanupService:       cleanupService,
+		openAIGatewayService: openAIGatewayService,
 	}
 }
 
@@ -330,8 +341,344 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	if h.openAIGatewayService != nil && stats != nil {
+		cacheStats := h.openAIGatewayService.GetGatewayResponseCacheStats()
+		stats.GatewayCacheHits = cacheStats.Hits
+		stats.GatewayCacheMisses = cacheStats.Misses
+		stats.GatewayCacheBypasses = cacheStats.Bypasses
+		stats.GatewayCacheStores = cacheStats.Stores
+		stats.GatewayCacheHitRate = cacheStats.HitRate
+		stats.GatewaySavedInputTokens = cacheStats.SavedInputTokens
+		stats.GatewaySavedOutputTokens = cacheStats.SavedOutputTokens
+		stats.GatewaySavedTokens = cacheStats.SavedTokens
+		stats.GatewaySavedCost = cacheStats.SavedCost
+		stats.UpstreamCallReduction = cacheStats.UpstreamCallReduction
+	}
 
 	response.Success(c, stats)
+}
+
+type benchmarkRunMetrics struct {
+	InputTokens   int     `json:"input_tokens"`
+	OutputTokens  int     `json:"output_tokens"`
+	TotalTokens   int     `json:"total_tokens"`
+	DurationMs    float64 `json:"duration_ms,omitempty"`
+	FirstTokenMs  float64 `json:"first_token_ms,omitempty"`
+	UpstreamCalls int     `json:"upstream_calls,omitempty"`
+}
+
+type benchmarkSampleResult struct {
+	ID                  string              `json:"id"`
+	Name                string              `json:"name"`
+	Category            string              `json:"category"`
+	Scenario            string              `json:"scenario,omitempty"`
+	Baseline            benchmarkRunMetrics `json:"baseline"`
+	LiteLLM             benchmarkRunMetrics `json:"litellm"`
+	GatewayCacheStatus  string              `json:"gateway_cache_status,omitempty"`
+	GatewayCacheHitRate float64             `json:"gateway_cache_hit_rate,omitempty"`
+	SavedInputTokens    int                 `json:"saved_input_tokens,omitempty"`
+	SavedOutputTokens   int                 `json:"saved_output_tokens,omitempty"`
+	SavedTokens         int                 `json:"saved_tokens,omitempty"`
+	SavedCost           float64             `json:"saved_cost,omitempty"`
+	LatencyDeltaMs      float64             `json:"latency_delta_ms,omitempty"`
+	Notes               string              `json:"notes,omitempty"`
+}
+
+type benchmarkSummary struct {
+	SampleSize            int     `json:"sample_size"`
+	BaselineTokens        int     `json:"baseline_tokens"`
+	LiteLLMTokens         int     `json:"litellm_tokens"`
+	SavedTokens           int     `json:"saved_tokens"`
+	SavedCost             float64 `json:"saved_cost,omitempty"`
+	CacheHitRate          float64 `json:"cache_hit_rate,omitempty"`
+	AverageLatencyDeltaMs float64 `json:"average_latency_delta_ms,omitempty"`
+	UpstreamCallReduction float64 `json:"upstream_call_reduction,omitempty"`
+}
+
+type benchmarkResponse struct {
+	GeneratedAt        string                  `json:"generated_at"`
+	TargetCacheHitRate float64                 `json:"target_cache_hit_rate"`
+	Summary            benchmarkSummary        `json:"summary"`
+	BaselineVsLiteLLM  []benchmarkSampleResult `json:"baseline_vs_litellm"`
+}
+
+type cacheBenchmarkRow struct {
+	Route                    string  `json:"route"`
+	SampleID                 string  `json:"sample_id"`
+	Category                 string  `json:"category"`
+	Cacheable                bool    `json:"cacheable"`
+	PassIndex                int     `json:"pass_index"`
+	CacheStatus              string  `json:"cache_status"`
+	InputTokens              int     `json:"input_tokens"`
+	OutputTokens             int     `json:"output_tokens"`
+	TotalTokens              int     `json:"total_tokens"`
+	GatewaySavedInputTokens  int     `json:"gateway_saved_input_tokens"`
+	GatewaySavedOutputTokens int     `json:"gateway_saved_output_tokens"`
+	GatewaySavedTokens       int     `json:"gateway_saved_tokens"`
+	DurationMs               float64 `json:"duration_ms"`
+	FirstTokenMs             float64 `json:"first_token_ms"`
+	UpstreamDelta            int     `json:"upstream_delta"`
+	Error                    string  `json:"error"`
+}
+
+type cacheBenchmarkFixtureFile struct {
+	Samples []struct {
+		ID          string `json:"id"`
+		Category    string `json:"category"`
+		Description string `json:"description"`
+	} `json:"samples"`
+}
+
+// BenchmarkBaselineVsLiteLLM returns the latest local cache benchmark artifact.
+// GET /api/v1/admin/usage/benchmark/baseline-vs-litellm
+func (h *UsageHandler) BenchmarkBaselineVsLiteLLM(c *gin.Context) {
+	payload, err := loadBenchmarkBaselineVsLiteLLM()
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.Success(c, payload)
+}
+
+func emptyBenchmarkBaselineVsLiteLLM() benchmarkResponse {
+	return benchmarkResponse{
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339),
+		TargetCacheHitRate: 0.90,
+		Summary:            benchmarkSummary{},
+		BaselineVsLiteLLM:  []benchmarkSampleResult{},
+	}
+}
+
+func loadBenchmarkBaselineVsLiteLLM() (benchmarkResponse, error) {
+	payload := emptyBenchmarkBaselineVsLiteLLM()
+	root, ok := findCacheBenchmarkRoot()
+	if !ok {
+		return payload, nil
+	}
+
+	artifactPath := filepath.Join(root, "tools", "cache_benchmark", "results", "cache_benchmark_results.json")
+	raw, err := os.ReadFile(artifactPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return payload, nil
+		}
+		return payload, err
+	}
+
+	var rows []cacheBenchmarkRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return payload, err
+	}
+	if len(rows) == 0 {
+		return payload, nil
+	}
+
+	metadata := loadCacheBenchmarkFixtureMetadata(root)
+	results, summary := buildBenchmarkBaselineVsLiteLLM(rows, metadata)
+	payload.BaselineVsLiteLLM = results
+	payload.Summary = summary
+	if info, err := os.Stat(artifactPath); err == nil {
+		payload.GeneratedAt = info.ModTime().UTC().Format(time.RFC3339)
+	}
+	return payload, nil
+}
+
+func findCacheBenchmarkRoot() (string, bool) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	dir := wd
+	for i := 0; i < 6; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "tools", "cache_benchmark", "fixtures.json")); err == nil {
+			return dir, true
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			break
+		}
+		dir = next
+	}
+	return "", false
+}
+
+func loadCacheBenchmarkFixtureMetadata(root string) map[string]cacheBenchmarkFixtureSampleMetadata {
+	out := make(map[string]cacheBenchmarkFixtureSampleMetadata)
+	raw, err := os.ReadFile(filepath.Join(root, "tools", "cache_benchmark", "fixtures.json"))
+	if err != nil {
+		return out
+	}
+	var fixtures cacheBenchmarkFixtureFile
+	if err := json.Unmarshal(raw, &fixtures); err != nil {
+		return out
+	}
+	for _, sample := range fixtures.Samples {
+		out[sample.ID] = cacheBenchmarkFixtureSampleMetadata{
+			Category:    sample.Category,
+			Description: sample.Description,
+		}
+	}
+	return out
+}
+
+type cacheBenchmarkFixtureSampleMetadata struct {
+	Category    string
+	Description string
+}
+
+func buildBenchmarkBaselineVsLiteLLM(rows []cacheBenchmarkRow, metadata map[string]cacheBenchmarkFixtureSampleMetadata) ([]benchmarkSampleResult, benchmarkSummary) {
+	bySample := make(map[string]map[string][]cacheBenchmarkRow)
+	for _, row := range rows {
+		if row.Error != "" || row.SampleID == "" {
+			continue
+		}
+		if bySample[row.SampleID] == nil {
+			bySample[row.SampleID] = make(map[string][]cacheBenchmarkRow)
+		}
+		bySample[row.SampleID][row.Route] = append(bySample[row.SampleID][row.Route], row)
+	}
+
+	ids := make([]string, 0, len(bySample))
+	for id := range bySample {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	results := make([]benchmarkSampleResult, 0, len(ids))
+	summary := benchmarkSummary{}
+	var latencyDeltaTotal float64
+	var latencyDeltaCount int
+	var hitRows, cacheableRows int
+	var upstreamCallsBaseline, upstreamCallsLiteLLM int
+
+	for _, id := range ids {
+		routes := bySample[id]
+		baselineRows := routes["baseline"]
+		liteLLMRows := routes["litellm"]
+		if len(liteLLMRows) == 0 {
+			continue
+		}
+
+		baseline := aggregateBenchmarkRunMetrics(baselineRows)
+		liteLLMObserved := aggregateBenchmarkRunMetrics(liteLLMRows)
+		savedInput, savedOutput, savedTokens, hits, cacheable := savedBenchmarkTokens(liteLLMRows)
+		hitRate := 0.0
+		if cacheable > 0 {
+			hitRate = float64(hits) / float64(cacheable)
+		}
+		liteLLM := benchmarkRunMetrics{
+			InputTokens:   maxInt(0, baseline.InputTokens-savedInput),
+			OutputTokens:  maxInt(0, baseline.OutputTokens-savedOutput),
+			TotalTokens:   maxInt(0, baseline.TotalTokens-savedTokens),
+			DurationMs:    liteLLMObserved.DurationMs,
+			FirstTokenMs:  liteLLMObserved.FirstTokenMs,
+			UpstreamCalls: liteLLMObserved.UpstreamCalls,
+		}
+		if baseline.TotalTokens == 0 {
+			liteLLM.TotalTokens = liteLLMObserved.TotalTokens
+		}
+		if baseline.InputTokens == 0 {
+			liteLLM.InputTokens = liteLLMObserved.InputTokens
+		}
+		if baseline.OutputTokens == 0 {
+			liteLLM.OutputTokens = liteLLMObserved.OutputTokens
+		}
+
+		status := "miss"
+		if hits > 0 {
+			status = "hit"
+		} else if cacheable == 0 {
+			status = "bypass"
+		}
+		meta := metadata[id]
+		category := meta.Category
+		if category == "" && len(liteLLMRows) > 0 {
+			category = liteLLMRows[0].Category
+		}
+		latencyDelta := liteLLM.DurationMs - baseline.DurationMs
+		result := benchmarkSampleResult{
+			ID:                  id,
+			Name:                id,
+			Category:            category,
+			Scenario:            meta.Description,
+			Baseline:            baseline,
+			LiteLLM:             liteLLM,
+			GatewayCacheStatus:  status,
+			GatewayCacheHitRate: hitRate,
+			SavedInputTokens:    savedInput,
+			SavedOutputTokens:   savedOutput,
+			SavedTokens:         savedTokens,
+			LatencyDeltaMs:      latencyDelta,
+		}
+		results = append(results, result)
+
+		summary.SampleSize++
+		summary.BaselineTokens += baseline.TotalTokens
+		summary.LiteLLMTokens += liteLLM.TotalTokens
+		summary.SavedTokens += savedTokens
+		upstreamCallsBaseline += baseline.UpstreamCalls
+		upstreamCallsLiteLLM += liteLLM.UpstreamCalls
+		hitRows += hits
+		cacheableRows += cacheable
+		latencyDeltaTotal += latencyDelta
+		latencyDeltaCount++
+	}
+
+	if cacheableRows > 0 {
+		summary.CacheHitRate = float64(hitRows) / float64(cacheableRows)
+	}
+	if latencyDeltaCount > 0 {
+		summary.AverageLatencyDeltaMs = latencyDeltaTotal / float64(latencyDeltaCount)
+	}
+	if upstreamCallsBaseline > 0 {
+		summary.UpstreamCallReduction = float64(upstreamCallsBaseline-upstreamCallsLiteLLM) / float64(upstreamCallsBaseline)
+	}
+	return results, summary
+}
+
+func aggregateBenchmarkRunMetrics(rows []cacheBenchmarkRow) benchmarkRunMetrics {
+	if len(rows) == 0 {
+		return benchmarkRunMetrics{}
+	}
+	var metrics benchmarkRunMetrics
+	for _, row := range rows {
+		metrics.InputTokens += row.InputTokens
+		metrics.OutputTokens += row.OutputTokens
+		metrics.TotalTokens += row.TotalTokens
+		metrics.DurationMs += row.DurationMs
+		metrics.FirstTokenMs += row.FirstTokenMs
+		metrics.UpstreamCalls += row.UpstreamDelta
+	}
+	metrics.DurationMs = metrics.DurationMs / float64(len(rows))
+	metrics.FirstTokenMs = metrics.FirstTokenMs / float64(len(rows))
+	return metrics
+}
+
+func savedBenchmarkTokens(rows []cacheBenchmarkRow) (input int, output int, total int, hits int, cacheable int) {
+	for _, row := range rows {
+		if row.Cacheable {
+			cacheable++
+		}
+		if row.CacheStatus != "hit" {
+			continue
+		}
+		hits++
+		input += row.GatewaySavedInputTokens
+		output += row.GatewaySavedOutputTokens
+		if row.GatewaySavedTokens > 0 {
+			total += row.GatewaySavedTokens
+		} else {
+			total += row.GatewaySavedInputTokens + row.GatewaySavedOutputTokens
+		}
+	}
+	return input, output, total, hits, cacheable
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // SearchUsers handles searching users by email keyword

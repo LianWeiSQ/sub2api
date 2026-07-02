@@ -2,6 +2,7 @@
   <AppLayout>
     <div class="space-y-6">
       <UsageStatsCards :stats="usageStats" />
+      <UsageCacheOptimizationCards :stats="usageStats" />
       <!-- Charts Section -->
       <div class="space-y-4">
         <div class="card p-4">
@@ -62,6 +63,10 @@
             :filters="breakdownFilters"
           />
           <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+        </div>
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <GatewayCacheTrend :trend-data="gatewayTrendData" :loading="chartsLoading" />
+          <LiteLLMBenchmarkPanel :data="benchmarkData" :loading="benchmarkLoading" />
         </div>
       </div>
       <UsageFilters v-model="filters" :start-date="startDate" :end-date="endDate" :exporting="exporting" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
@@ -143,11 +148,14 @@ import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination fro
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'; import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'; import UsageExportProgress from '@/components/admin/usage/UsageExportProgress.vue'
 import UsageCleanupDialog from '@/components/admin/usage/UsageCleanupDialog.vue'
+import UsageCacheOptimizationCards from '@/components/admin/usage/UsageCacheOptimizationCards.vue'
+import GatewayCacheTrend from '@/components/admin/usage/GatewayCacheTrend.vue'
+import LiteLLMBenchmarkPanel from '@/components/admin/usage/LiteLLMBenchmarkPanel.vue'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'; import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'; import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
+import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams, BaselineVsLiteLLMBenchmarkResponse } from '@/api/admin/usage'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -157,6 +165,8 @@ type ModelDistributionSource = 'requested' | 'upstream' | 'mapping'
 const route = useRoute()
 const usageStats = ref<AdminUsageStatsResponse | null>(null); const usageLogs = ref<AdminUsageLog[]>([]); const loading = ref(false); const exporting = ref(false)
 const trendData = ref<TrendDataPoint[]>([]); const requestedModelStats = ref<ModelStat[]>([]); const upstreamModelStats = ref<ModelStat[]>([]); const mappingModelStats = ref<ModelStat[]>([]); const groupStats = ref<GroupStat[]>([]); const chartsLoading = ref(false); const modelStatsLoading = ref(false); const granularity = ref<'day' | 'hour'>('hour')
+const benchmarkData = ref<BaselineVsLiteLLMBenchmarkResponse | null>(null)
+const benchmarkLoading = ref(false)
 const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const modelDistributionSource = ref<ModelDistributionSource>('requested')
 const loadedModelSources = reactive<Record<ModelDistributionSource, boolean>>({
@@ -175,6 +185,7 @@ let abortController: AbortController | null = null; let exportAbortController: A
 let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
+let benchmarkReqSeq = 0
 const exportProgress = reactive({ show: false, progress: 0, current: 0, total: 0, estimatedTime: '' })
 const cleanupDialogVisible = ref(false)
 // Balance history modal state
@@ -190,6 +201,57 @@ const breakdownFilters = computed(() => {
   if (filters.value.request_type != null) f.request_type = filters.value.request_type
   if (filters.value.billing_type != null) f.billing_type = filters.value.billing_type
   return f
+})
+
+const hasGatewayCacheTrendData = (points: TrendDataPoint[]): boolean =>
+  points.some((point) =>
+    (point.gateway_saved_tokens || 0) > 0 ||
+    (point.gateway_cache_hits || 0) > 0 ||
+    (point.gateway_cache_misses || 0) > 0 ||
+    (point.gateway_cache_bypasses || 0) > 0 ||
+    (point.gateway_cache_stores || 0) > 0
+  )
+
+const gatewayTrendData = computed<TrendDataPoint[]>(() => {
+  if (hasGatewayCacheTrendData(trendData.value)) {
+    return trendData.value
+  }
+  const stats = usageStats.value
+  if (!stats) {
+    return trendData.value
+  }
+  const totalEvents =
+    (stats.gateway_cache_hits || 0) +
+    (stats.gateway_cache_misses || 0) +
+    (stats.gateway_cache_bypasses || 0) +
+    (stats.gateway_cache_stores || 0)
+  if (totalEvents === 0 && (stats.gateway_saved_tokens || 0) === 0) {
+    return trendData.value
+  }
+  const latest = trendData.value[trendData.value.length - 1]
+  return [
+    {
+      date: latest?.date || endDate.value,
+      requests: latest?.requests || stats.total_requests || 0,
+      input_tokens: latest?.input_tokens || stats.total_input_tokens || 0,
+      output_tokens: latest?.output_tokens || stats.total_output_tokens || 0,
+      cache_creation_tokens: latest?.cache_creation_tokens || 0,
+      cache_read_tokens: latest?.cache_read_tokens || stats.total_cache_tokens || 0,
+      total_tokens: latest?.total_tokens || stats.total_tokens || 0,
+      cost: latest?.cost || stats.total_cost || 0,
+      actual_cost: latest?.actual_cost || stats.total_actual_cost || 0,
+      gateway_cache_hits: stats.gateway_cache_hits || 0,
+      gateway_cache_misses: stats.gateway_cache_misses || 0,
+      gateway_cache_bypasses: stats.gateway_cache_bypasses || 0,
+      gateway_cache_stores: stats.gateway_cache_stores || 0,
+      gateway_cache_hit_rate: stats.gateway_cache_hit_rate || 0,
+      gateway_saved_input_tokens: stats.gateway_saved_input_tokens || 0,
+      gateway_saved_output_tokens: stats.gateway_saved_output_tokens || 0,
+      gateway_saved_tokens: stats.gateway_saved_tokens || 0,
+      gateway_saved_cost: stats.gateway_saved_cost || 0,
+      upstream_call_reduction: stats.upstream_call_reduction || 0
+    }
+  ]
 })
 
 const handleUserClick = async (userId: number) => {
@@ -419,6 +481,28 @@ const loadChartData = async () => {
     groupStats.value = snapshot.groups || []
   } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
 }
+const loadBenchmarkData = async () => {
+  const seq = ++benchmarkReqSeq
+  benchmarkLoading.value = true
+  try {
+    const data = await adminUsageAPI.getBaselineVsLiteLLMBenchmark({
+      start_date: filters.value.start_date || startDate.value,
+      end_date: filters.value.end_date || endDate.value,
+      model: filters.value.model,
+      group_id: filters.value.group_id,
+    })
+    if (seq !== benchmarkReqSeq) return
+    benchmarkData.value = data
+  } catch (error: any) {
+    if (seq !== benchmarkReqSeq) return
+    if (error?.response?.status !== 404) {
+      console.error('Failed to load LiteLLM benchmark data:', error)
+    }
+    benchmarkData.value = null
+  } finally {
+    if (seq === benchmarkReqSeq) benchmarkLoading.value = false
+  }
+}
 const applyFilters = () => {
   pagination.page = 1
   resetModelStatsCache()
@@ -426,6 +510,7 @@ const applyFilters = () => {
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
+  loadBenchmarkData()
 }
 const refreshData = () => {
   resetModelStatsCache()
@@ -433,6 +518,7 @@ const refreshData = () => {
   loadStats()
   loadModelStats(modelDistributionSource.value, true)
   loadChartData()
+  loadBenchmarkData()
 }
 const resetFilters = () => {
   const range = getLast24HoursRangeDates()
@@ -460,6 +546,15 @@ const getRequestTypeLabel = (log: AdminUsageLog): string => {
   return t('usage.unknown')
 }
 
+const getGatewayCacheStatusLabel = (status?: string | null): string => {
+  if (status === 'hit') return t('admin.usage.gatewayCacheStatus.hit')
+  if (status === 'miss') return t('admin.usage.gatewayCacheStatus.miss')
+  if (status === 'bypass') return t('admin.usage.gatewayCacheStatus.bypass')
+  if (status === 'store') return t('admin.usage.gatewayCacheStatus.store')
+  if (status === 'disabled') return t('admin.usage.gatewayCacheStatus.disabled')
+  return status || t('admin.usage.gatewayCacheStatus.unknown')
+}
+
 const exportToExcel = async () => {
   if (exporting.value) return; exporting.value = true; exportProgress.show = true
   const c = new AbortController(); exportAbortController = c
@@ -471,6 +566,7 @@ const exportToExcel = async () => {
       t('admin.usage.account'), t('usage.model'), t('usage.upstreamModel'), t('usage.reasoningEffort'), t('admin.usage.group'),
       t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
       t('usage.type'),
+      t('admin.usage.gatewayCache'), t('admin.usage.gatewaySavedTokens'), t('admin.usage.gatewaySavedCost'), t('admin.usage.gatewayCacheBypassReason'),
       t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
       t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
       t('admin.usage.inputCost'), t('admin.usage.outputCost'),
@@ -490,6 +586,7 @@ const exportToExcel = async () => {
         log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
         log.upstream_model || '', formatReasoningEffort(log.reasoning_effort), log.group?.name || '',
         log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
+        getGatewayCacheStatusLabel(log.gateway_cache_status), log.gateway_saved_tokens ?? '', log.gateway_saved_cost?.toFixed(6) || '', log.gateway_cache_bypass_reason || '',
         log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
         log.input_cost?.toFixed(6) || '0.000000', log.output_cost?.toFixed(6) || '0.000000',
         log.cache_read_cost?.toFixed(6) || '0.000000', log.cache_creation_cost?.toFixed(6) || '0.000000',
@@ -531,6 +628,7 @@ const allColumns = computed(() => [
   { key: 'group', label: t('admin.usage.group'), sortable: false },
   { key: 'stream', label: t('usage.type'), sortable: false },
   { key: 'billing_mode', label: t('admin.usage.billingMode'), sortable: false },
+  { key: 'gateway_cache', label: t('admin.usage.gatewayCache'), sortable: false },
   { key: 'tokens', label: t('usage.tokens'), sortable: false },
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'first_token', label: t('usage.firstToken'), sortable: false },
@@ -603,6 +701,7 @@ onMounted(() => {
   window.setTimeout(() => {
     void loadChartData()
   }, 120)
+  loadBenchmarkData()
   loadSavedColumns()
   document.addEventListener('click', handleColumnClickOutside)
 })
