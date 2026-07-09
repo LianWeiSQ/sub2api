@@ -237,6 +237,36 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 	responsesBody = updatedBody
 
+	var cacheServiceTier *string
+	if responsesReq.ServiceTier != "" {
+		st := responsesReq.ServiceTier
+		cacheServiceTier = &st
+	}
+	var cacheReasoningEffort *string
+	if responsesReq.Reasoning != nil && responsesReq.Reasoning.Effort != "" {
+		re := responsesReq.Reasoning.Effort
+		cacheReasoningEffort = &re
+	}
+	cacheLookupBody := responsesBody
+	if cacheControl := gjson.GetBytes(body, "cache"); cacheControl.Exists() && cacheControl.Raw != "" {
+		if withCacheControl, cacheSetErr := sjson.SetRawBytes(responsesBody, "cache", []byte(cacheControl.Raw)); cacheSetErr == nil {
+			cacheLookupBody = withCacheControl
+		}
+	}
+	cacheLookup, cacheErr := s.lookupOpenAIGatewayResponseCache(ctx, c, account, "/v1/chat/completions", cacheLookupBody, clientStream, originalModel, upstreamModel)
+	if cacheErr == nil {
+		if result, ok := s.writeOpenAIGatewayResponseCacheHit(ctx, c, cacheLookup, originalModel, upstreamModel, billingModel, cacheServiceTier, cacheReasoningEffort, startTime); ok {
+			return result, nil
+		}
+	} else if cacheLookup != nil {
+		cacheLookup.Status = GatewayResponseCacheStatusBypass
+		cacheLookup.BypassReason = "cache_error"
+		writeGatewayResponseCacheHeaders(c, cacheLookup, 0, 0, 0)
+	}
+	if strippedBody, stripErr := sjson.DeleteBytes(responsesBody, "cache"); stripErr == nil {
+		responsesBody = strippedBody
+	}
+
 	// 5. Get access token
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
@@ -342,6 +372,7 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 			re := responsesReq.Reasoning.Effort
 			result.ReasoningEffort = &re
 		}
+		applyOpenAIGatewayResponseCacheResultMetadata(result, openAIGatewayResponseCacheLookupFromContext(c))
 	}
 
 	// Extract and save Codex usage snapshot from response headers (for OAuth accounts)
@@ -463,11 +494,25 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
 	// 非流式响应必须为标准 JSON。上游被强制流式，其响应头 Content-Type 为
-	// text/event-stream，会经 WriteFilteredHeaders 透传进来；而 c.JSON 走 Gin 的
-	// writeContentType 仅在头不存在时才设置，无法覆盖。这里显式 Set 强制改回 JSON，
-	// 否则下游"看头判流式"的中间层（如 new-api）会把本应聚合的 JSON 当成 SSE 处理。
+	// text/event-stream，会经 WriteFilteredHeaders 透传进来；这里显式覆盖回 JSON。
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.JSON(http.StatusOK, chatResp)
+	respBytes, err := json.Marshal(chatResp)
+	if err != nil {
+		c.JSON(http.StatusOK, chatResp)
+	} else {
+		s.storeOpenAIGatewayResponseCache(
+			c.Request.Context(),
+			c,
+			openAIGatewayResponseCacheLookupFromContext(c),
+			http.StatusOK,
+			"application/json; charset=utf-8",
+			resp.Header,
+			respBytes,
+			requestID,
+			&usage,
+		)
+		c.Data(http.StatusOK, "application/json; charset=utf-8", respBytes)
+	}
 
 	return &OpenAIForwardResult{
 		RequestID:     requestID,

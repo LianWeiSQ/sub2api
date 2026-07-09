@@ -21,9 +21,64 @@ export interface AdminUsageStatsResponse {
   total_actual_cost: number
   total_account_cost: number
   average_duration_ms: number
+  gateway_cache_hits?: number
+  gateway_cache_misses?: number
+  gateway_cache_bypasses?: number
+  gateway_cache_stores?: number
+  gateway_cache_hit_rate?: number
+  gateway_saved_input_tokens?: number
+  gateway_saved_output_tokens?: number
+  gateway_saved_tokens?: number
+  gateway_saved_cost?: number
+  upstream_call_reduction?: number
   endpoints?: EndpointStat[]
   upstream_endpoints?: EndpointStat[]
   endpoint_paths?: EndpointStat[]
+}
+
+export interface LiteLLMBenchmarkRunMetrics {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cost?: number
+  duration_ms?: number
+  first_token_ms?: number | null
+  upstream_calls?: number
+}
+
+export interface LiteLLMBenchmarkSampleResult {
+  id: string
+  name: string
+  category: string
+  scenario?: string
+  baseline: LiteLLMBenchmarkRunMetrics
+  litellm: LiteLLMBenchmarkRunMetrics
+  gateway_cache_status?: string | null
+  gateway_cache_hit_rate?: number
+  saved_input_tokens?: number
+  saved_output_tokens?: number
+  saved_tokens?: number
+  saved_cost?: number
+  latency_delta_ms?: number
+  notes?: string | null
+}
+
+export interface LiteLLMBenchmarkSummary {
+  sample_size: number
+  baseline_tokens: number
+  litellm_tokens: number
+  saved_tokens: number
+  saved_cost?: number
+  cache_hit_rate?: number
+  average_latency_delta_ms?: number
+  upstream_call_reduction?: number
+}
+
+export interface BaselineVsLiteLLMBenchmarkResponse {
+  generated_at?: string
+  target_cache_hit_rate?: number
+  summary?: Partial<LiteLLMBenchmarkSummary>
+  baseline_vs_litellm: LiteLLMBenchmarkSampleResult[]
 }
 
 export interface SimpleUser {
@@ -132,6 +187,24 @@ export async function getStats(params: {
 }
 
 /**
+ * Get optional baseline-vs-LiteLLM benchmark results for cache optimization.
+ * Backends that have not enabled the benchmark endpoint may return 404; callers
+ * should treat that as "no benchmark data" rather than a page-level failure.
+ */
+export async function getBaselineVsLiteLLMBenchmark(params?: {
+  start_date?: string
+  end_date?: string
+  model?: string
+  group_id?: number
+}): Promise<BaselineVsLiteLLMBenchmarkResponse> {
+  const { data } = await apiClient.get<BaselineVsLiteLLMBenchmarkResponse>(
+    '/admin/usage/benchmark/baseline-vs-litellm',
+    { params }
+  )
+  return data
+}
+
+/**
  * Search users by email keyword (admin only)
  * @param keyword - Email keyword to search
  * @returns List of matching users (max 30)
@@ -203,6 +276,7 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
 export const adminUsageAPI = {
   list,
   getStats,
+  getBaselineVsLiteLLMBenchmark,
   searchUsers,
   searchApiKeys,
   listCleanupTasks,

@@ -129,17 +129,6 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 	ctx := context.Background()
 	groupID := int64(24)
 	rateLimitedUntil := time.Now().Add(30 * time.Minute)
-	staleAccount := &Account{
-		ID:          13,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
-		Extra: map[string]any{
-			"openai_apikey_responses_websockets_v2_enabled": true,
-		},
-	}
 	dbAccount := Account{
 		ID:               13,
 		Platform:         PlatformOpenAI,
@@ -156,7 +145,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 	store := NewOpenAIWSStateStore(cache)
 	cfg := newOpenAIWSV2TestConfig()
 	snapshotCache := &openAISnapshotCacheStub{
-		accountsByID: map[int64]*Account{dbAccount.ID: staleAccount},
+		accountsByID: map[int64]*Account{dbAccount.ID: &dbAccount},
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:        stubOpenAIAccountRepo{accounts: []Account{dbAccount}},

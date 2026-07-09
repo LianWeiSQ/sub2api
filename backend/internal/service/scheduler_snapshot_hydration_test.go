@@ -62,6 +62,12 @@ func (c *snapshotHydrationCache) SetOutboxWatermark(ctx context.Context, id int6
 	return nil
 }
 
+type panicGetByIDOpenAIRepo struct{}
+
+func (panicGetByIDOpenAIRepo) GetByID(context.Context, int64) (*Account, error) {
+	panic("unexpected direct accountRepo.GetByID call")
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedulerSnapshot(t *testing.T) {
 	cache := &snapshotHydrationCache{
 		snapshot: []*Account{
@@ -186,6 +192,40 @@ func TestGatewaySelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedu
 	}
 	if got := result.Account.GetCredential("api_key"); got != "anthropic-live-key" {
 		t.Fatalf("expected hydrated api key, got %q", got)
+	}
+}
+
+func TestOpenAIRecheckSelectedAccountPrefersSchedulerSnapshotAccountCache(t *testing.T) {
+	cache := &snapshotHydrationCache{
+		accounts: map[int64]*Account{
+			7: {
+				ID:          7,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    1,
+				Credentials: map[string]any{
+					"api_key":       "sk-live",
+					"model_mapping": map[string]any{"gpt-4": "gpt-4"},
+				},
+			},
+		},
+	}
+
+	schedulerSnapshot := NewSchedulerSnapshotService(cache, nil, nil, nil, nil)
+	svc := &OpenAIGatewayService{
+		schedulerSnapshot: schedulerSnapshot,
+		accountRepo:       panicGetByIDOpenAIRepo{},
+	}
+
+	checked := svc.recheckSelectedOpenAIAccountFromDB(context.Background(), &Account{ID: 7}, "gpt-4", false)
+	if checked == nil {
+		t.Fatal("expected account from scheduler snapshot")
+	}
+	if got := checked.GetOpenAIApiKey(); got != "sk-live" {
+		t.Fatalf("expected hydrated api key from snapshot cache, got %q", got)
 	}
 }
 

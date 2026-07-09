@@ -1238,6 +1238,7 @@ export interface CodexSessionImportResult {
 
 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
 export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber'
+export type GatewayCacheStatus = 'hit' | 'miss' | 'bypass' | 'store' | 'disabled' | string
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
@@ -1293,6 +1294,13 @@ export interface UsageLog {
 
   // Cache TTL Override
   cache_ttl_overridden: boolean
+
+  // Gateway response cache fields (Sub2API layer, distinct from provider prompt cache)
+  gateway_cache_status?: GatewayCacheStatus | null
+  gateway_cache_key_hash?: string | null
+  gateway_cache_bypass_reason?: string | null
+  gateway_saved_tokens?: number | null
+  gateway_saved_cost?: number | null
 
   // 计费模式
   billing_mode?: string | null
@@ -1479,6 +1487,16 @@ export interface TrendDataPoint {
   output_tokens: number
   cache_creation_tokens: number
   cache_read_tokens: number
+  gateway_cache_hits?: number
+  gateway_cache_misses?: number
+  gateway_cache_bypasses?: number
+  gateway_cache_stores?: number
+  gateway_cache_hit_rate?: number
+  gateway_saved_input_tokens?: number
+  gateway_saved_output_tokens?: number
+  gateway_saved_tokens?: number
+  gateway_saved_cost?: number
+  upstream_call_reduction?: number
   total_tokens: number
   cost: number // 标准计费
   actual_cost: number // 实际扣除

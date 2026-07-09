@@ -23,6 +23,15 @@ const messages: Record<string, string> = {
   'usage.original': 'Original',
   'usage.userBilled': 'User billed',
   'usage.accountBilled': 'Account billed',
+  'admin.usage.gatewayCacheStatus.hit': 'Hit',
+  'admin.usage.gatewayCacheStatus.miss': 'Miss',
+  'admin.usage.gatewayCacheStatus.bypass': 'Bypass',
+  'admin.usage.gatewayCacheStatus.store': 'Store',
+  'admin.usage.gatewayCacheStatus.disabled': 'Disabled',
+  'admin.usage.gatewayCacheStatus.unknown': 'Unknown',
+  'admin.usage.gatewaySavedCost': 'Gateway saved cost',
+  'admin.usage.gatewaySavedTokens': 'Gateway saved tokens',
+  'admin.usage.savedTokens': 'Saved',
   'usage.imageUnit': ' images',
   'usage.imageCount': 'Image count',
   'usage.imageBillingSize': 'Billing size',
@@ -61,6 +70,7 @@ const DataTableStub = {
     <div>
       <div v-for="row in data" :key="row.request_id">
         <slot name="cell-model" :row="row" :value="row.model" />
+        <slot name="cell-gateway_cache" :row="row" />
         <slot name="cell-billing_mode" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
@@ -198,6 +208,53 @@ describe('admin UsageTable tooltip', () => {
     const text = wrapper.text()
     expect(text).toContain('claude-sonnet-4')
     expect(text).toContain('claude-sonnet-4-20250514')
+  })
+
+  it('renders gateway cache status and savings for admin rows', () => {
+    const row = {
+      request_id: 'req-admin-cache-1',
+      model: 'gpt-5.1',
+      gateway_cache_status: 'hit',
+      gateway_cache_key_hash: 'abcdef1234567890',
+      gateway_saved_tokens: 15327,
+      gateway_saved_cost: 0.0425,
+      actual_cost: 0,
+      total_cost: 0,
+      account_rate_multiplier: 1,
+      rate_multiplier: 1,
+      input_cost: 0,
+      output_cost: 0,
+      cache_creation_cost: 0,
+      cache_read_cost: 0,
+      input_tokens: 0,
+      output_tokens: 0,
+      image_count: 0,
+      billing_mode: 'token',
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+    }
+
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [row],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).toContain('Hit')
+    expect(text).toContain('abcdef1234...')
+    expect(text).toContain('15.3K')
+    expect(text).toContain('$0.042500')
   })
 
   it.each([

@@ -1,0 +1,30 @@
+# LiteLLM cache benchmark config for Sub2API development.
+#
+# This file follows LiteLLM proxy caching config shape:
+# - model_list points an OpenAI-compatible model at the local fake LLM.
+# - litellm_settings.cache enables response caching.
+# - cache_params.type=local keeps the template keyless and offline-friendly.
+#
+# Run example:
+#   FAKE_OPENAI_BASE_URL=http://127.0.0.1:18081/v1 \
+#   FAKE_OPENAI_API_KEY=fake-key \
+#   litellm --config deploy/litellm-cache-benchmark.config.yaml --port 4000
+
+model_list:
+  - model_name: sub2api-cache-bench
+    litellm_params:
+      model: openai/sub2api-cache-bench
+      api_base: os.environ/FAKE_OPENAI_BASE_URL
+      api_key: os.environ/FAKE_OPENAI_API_KEY
+
+litellm_settings:
+  set_verbose: false
+  cache: true
+  cache_params:
+    type: local
+    ttl: 3600
+    supported_call_types:
+      - acompletion
+
+general_settings:
+  master_key: sk-bench-key
